@@ -119,13 +119,15 @@ f_confirmBounce(_level, _isUpper) =>
 f_nearestLevelPrice(_arr, _above, _price) =>
     // returns nearest y-level either above or below _price from array of lines
     float best = na
-    for j = array.size(_arr) - 1 to 0
-        if j < array.size(_arr)
-            ln = array.get(_arr, j)
-            y  = line.get_y1(ln)
-            ok = _above ? (y > _price) : (y < _price)
-            if ok
-                best := na(best) ? y : (_above ? math.min(best, y) : math.max(best, y))
+    int sz = array.size(_arr)
+    if sz > 0
+        for j = sz - 1 to 0
+            if j >= 0 and j < array.size(_arr)
+                ln = array.get(_arr, j)
+                y  = line.get_y1(ln)
+                ok = _above ? (y > _price) : (y < _price)
+                if ok
+                    best := na(best) ? y : (_above ? math.min(best, y) : math.max(best, y))
     best
 
 f_addLevel(_arr, _y, _col, _w) =>
@@ -209,15 +211,17 @@ f_trim(aDn)
 
 // Keep extending lines, and delete them on touch (like original indicator)
 f_updateLevels(_arr) =>
-    for j = array.size(_arr) - 1 to 0
-        if j < array.size(_arr)
-            ln = array.get(_arr, j)
-            y  = line.get_y1(ln)
-            if f_touch(y)
-                // don't delete here; strategy logic below may want to use this touch event
-                na
-            else
-                line.set_x2(ln, b.i + 1)
+    int sz = array.size(_arr)
+    if sz > 0
+        for j = sz - 1 to 0
+            if j >= 0 and j < array.size(_arr)
+                ln = array.get(_arr, j)
+                y  = line.get_y1(ln)
+                if f_touch(y)
+                    // don't delete here; strategy logic below may want to use this touch event
+                    na
+                else
+                    line.set_x2(ln, b.i + 1)
 
 f_updateLevels(aUp)
 f_updateLevels(aDn)
@@ -232,37 +236,39 @@ canTrade = strategy.position_size == 0
 // Try to trigger on the *latest* touched level (closest in time), scanning from newest to oldest
 f_tradeBounce(_arr, _isUpper) =>
     bool did = false
-    for j = array.size(_arr) - 1 to 0
-        if not did and j < array.size(_arr)
-            ln = array.get(_arr, j)
-            y  = line.get_y1(ln)
-            if f_confirmBounce(y, _isUpper)
-                float off = f_stopOffset(y)
-                float stopPrice = _isUpper ? (y + off) : (y - off)
-                float entryPrice = close
+    int sz = array.size(_arr)
+    if sz > 0
+        for j = sz - 1 to 0
+            if not did and j >= 0 and j < array.size(_arr)
+                ln = array.get(_arr, j)
+                y  = line.get_y1(ln)
+                if f_confirmBounce(y, _isUpper)
+                    float off = f_stopOffset(y)
+                    float stopPrice = _isUpper ? (y + off) : (y - off)
+                    float entryPrice = close
 
-                float tpPrice = na
-                if tpMode == "Nearest Opposite Level"
-                    // long TP -> nearest upper above entry; short TP -> nearest lower below entry
-                    tpPrice := _isUpper ? f_nearestLevelPrice(aDn, false, entryPrice) : f_nearestLevelPrice(aUp, true, entryPrice)
-                if na(tpPrice)
-                    // fallback RR
-                    float risk = math.abs(entryPrice - stopPrice)
-                    tpPrice := _isUpper ? (entryPrice - risk * rr) : (entryPrice + risk * rr)
+                    float tpPrice = na
+                    if tpMode == "Nearest Opposite Level"
+                        // long TP -> nearest upper above entry; short TP -> nearest lower below entry
+                        tpPrice := _isUpper ? f_nearestLevelPrice(aDn, false, entryPrice) : f_nearestLevelPrice(aUp, true, entryPrice)
+                    if na(tpPrice)
+                        // fallback RR
+                        float risk = math.abs(entryPrice - stopPrice)
+                        tpPrice := _isUpper ? (entryPrice - risk * rr) : (entryPrice + risk * rr)
 
-                if _isUpper and useShort and canTrade
-                    strategy.entry("S", strategy.short, comment = "Bounce from upper LQ")
-                    strategy.exit("Sx", "S", stop = stopPrice, limit = tpPrice)
-                    did := true
-                if (not _isUpper) and useLong and canTrade
-                    strategy.entry("L", strategy.long, comment = "Bounce from lower LQ")
-                    strategy.exit("Lx", "L", stop = stopPrice, limit = tpPrice)
-                    did := true
+                    if _isUpper and useShort and canTrade
+                        strategy.entry("S", strategy.short, comment = "Bounce from upper LQ")
+                        strategy.exit("Sx", "S", stop = stopPrice, limit = tpPrice)
+                        did := true
+                    if (not _isUpper) and useLong and canTrade
+                        strategy.entry("L", strategy.long, comment = "Bounce from lower LQ")
+                        strategy.exit("Lx", "L", stop = stopPrice, limit = tpPrice)
+                        did := true
 
-                // after triggering, delete the level (one-and-done, like original indicator)
-                if did
-                    line.delete(ln)
-                    array.remove(_arr, j)
+                    // after triggering, delete the level (one-and-done, like original indicator)
+                    if did
+                        line.delete(ln)
+                        array.remove(_arr, j)
     did
 
 // Evaluate upper levels (short) first, then lower (long)
@@ -271,13 +277,15 @@ f_tradeBounce(aDn, false)
 
 // After trading logic, clean any remaining touched levels (to match the indicator behavior)
 f_cleanupTouched(_arr) =>
-    for j = array.size(_arr) - 1 to 0
-        if j < array.size(_arr)
-            ln = array.get(_arr, j)
-            y  = line.get_y1(ln)
-            if f_touch(y)
-                line.delete(ln)
-                array.remove(_arr, j)
+    int sz = array.size(_arr)
+    if sz > 0
+        for j = sz - 1 to 0
+            if j >= 0 and j < array.size(_arr)
+                ln = array.get(_arr, j)
+                y  = line.get_y1(ln)
+                if f_touch(y)
+                    line.delete(ln)
+                    array.remove(_arr, j)
 
 f_cleanupTouched(aUp)
 f_cleanupTouched(aDn)
