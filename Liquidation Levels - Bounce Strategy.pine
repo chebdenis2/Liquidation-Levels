@@ -1,0 +1,313 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo (indicator logic adapted) + strategy wrapper by chebdenis2 contributors
+//
+//@version=5
+strategy("Liquidation Levels [LuxAlgo] — Bounce Strategy", "LuxAlgo - Liquidation Bounce", overlay = true,
+     max_lines_count = 500, max_bars_back = 5000,
+     initial_capital = 10000, commission_type = strategy.commission.percent, commission_value = 0.04,
+     calc_on_order_fills = true, calc_on_every_tick = false, pyramiding = 0)
+
+//------------------------------------------------------------------------------
+// Settings (same inputs as indicator, + trading rules)
+//-----------------------------------------------------------------------------{
+
+rpTT  = "Liquidation Levels are estimates of potential price levels where liquidation events may occur\n - The reference price option defines the base price in calculating liquidation price levels"
+refPL = input.string("open", "Reference Price", options = ["open", "close", "oc2", "hl2", "hlc3", "ohlc4", "hlcc4"], tooltip = rpTT)
+
+vlTT  = "Liquidation data is closely tied in with trading volumes in the market and the movement in the underlying asset’s price\n -  The volume threshold option is the primary factor in detecting the significant trading activities that could potentially lead to liquidating leveraged positions\n -  The volatility threshold option (below) is the secondary factor that aims at detecting significant movement in the underlying asset’s price with relatively lower trading activities that could potentially also lead to liquidating high-leveraged positions"
+vbHT  = input.float(1.7, "Volume Threshold", minval = 1., step = .1, tooltip = vlTT)
+lqTH  = input.int(10, "Volatility Threshold", minval = 0, step = 5)
+
+lqL1  = input.bool(true, "Leverage", inline = "L1")
+lgL1V = input.int(25, "", minval = 1, inline = "L1")
+lqL1L = input.color(color.new(#5b9cf6, 50), "", inline = "L1")
+lqL1S = input.color(color.new(#f06292, 50), "", inline = "L1")
+
+lqL2  = input.bool(true, "Leverage", inline = "L2")
+lgL2V = input.int(50, "", minval = 1, inline = "L2")
+lqL2L = input.color(color.new(#4dd0e1, 50), "", inline = "L2")
+lqL2S = input.color(color.new(#ba68c8, 50), "", inline = "L2")
+
+lqL3  = input.bool(true, "Leverage", inline = "L3")
+lgL3V = input.int(100, "", minval = 1, inline = "L3")
+lqL3L = input.color(color.new(#42bda8, 50), "", inline = "L3")
+lqL3S = input.color(color.new(#9575cd, 50), "", inline = "L3")
+
+showBubbles = input.bool(true, "Show Liquidation Bubbles")
+showLevels  = input.bool(true, "Show Liquidation Levels")
+
+// Trading rules
+useLong  = input.bool(true, "Trade Long bounces (from lower levels)")
+useShort = input.bool(true, "Trade Short bounces (from upper levels)")
+
+posTT = "If disabled, the strategy will only take a new entry when flat.\nIf enabled, new signals can reverse the current position (more trades)."
+allowReversals = input.bool(true, "Allow reversals / new entries while in position", tooltip = posTT)
+
+exitTT = "Time-based exit: close position after N bars in trade (0 = disabled).\nUseful to avoid one trade blocking new entries for too long."
+maxHoldBars = input.int(0, "Max bars in trade (0 = off)", minval = 0, tooltip = exitTT)
+
+lvlTT = "Level lifetime:\n - On touch (LuxAlgo-style): delete a level the first time price touches it.\n - Only after trade: keep levels until a bounce trade triggers on them (more trades)."
+levelDeleteMode = input.string("Only after trade", "Delete levels", options = ["On touch (LuxAlgo-style)", "Only after trade"], tooltip = lvlTT)
+
+confirmTT = "Bounce confirmation:\n - Close back through the level (reject)\n - Optional min penetration (tick/%) to avoid noise"
+needCloseBack = input.bool(true, "Require close back through level", tooltip = confirmTT)
+minPenTicks   = input.int(0, "Min penetration (ticks)", minval = 0, tooltip = confirmTT)
+
+riskTT = "Stops are placed beyond the level by either:\n - ATR multiple, or\n - % of price\nTP can be RR-based or nearest opposite liquidation level"
+stopMode = input.string("ATR", "Stop Offset Mode", options = ["ATR", "Percent"], tooltip = riskTT)
+atrLen   = input.int(14, "ATR Length", minval = 1, tooltip = riskTT)
+atrMult  = input.float(0.8, "ATR Mult", minval = 0.1, step = 0.1, tooltip = riskTT)
+stopPct  = input.float(0.25, "Stop %", minval = 0.01, step = 0.01, tooltip = riskTT)
+
+tpMode = input.string("RR", "Take Profit Mode", options = ["RR", "Nearest Opposite Level"], tooltip = riskTT)
+rr     = input.float(1.5, "RR", minval = 0.2, step = 0.1, tooltip = riskTT)
+
+//-----------------------------------------------------------------------------}
+// User Defined Types
+//-----------------------------------------------------------------------------{
+
+type bar
+    float h = high
+    float l = low
+    float v = volume
+    int   i = bar_index
+
+//-----------------------------------------------------------------------------}
+// Variables
+//-----------------------------------------------------------------------------{
+
+bar b = bar.new()
+
+var aUp = array.new_line()   // levels above (treated as resistance -> short bounce)
+var aDn = array.new_line()   // levels below (treated as support -> long bounce)
+
+nzV = nz(b.v)
+
+//-----------------------------------------------------------------------------}
+// Functions
+//-----------------------------------------------------------------------------{
+
+f_gSRC(_s) =>
+    switch _s
+        "open"  => open
+        "close" => close
+        "hl2"   => hl2
+        "oc2"   => math.avg(open, close)
+        "hlc3"  => hlc3
+        "ohlc4" => ohlc4
+        "hlcc4" => hlcc4
+
+f_stopOffset(_price) =>
+    float off = na
+    if stopMode == "ATR"
+        off := ta.atr(atrLen) * atrMult
+    else
+        off := _price * stopPct / 100.0
+    math.max(off, syminfo.mintick)
+
+f_minPen(_level, _isUpper) =>
+    // returns true if penetration passes minPenTicks
+    float pen = _isUpper ? math.max(0.0, high - _level) : math.max(0.0, _level - low)
+    pen >= (minPenTicks * syminfo.mintick)
+
+f_touch(_level) =>
+    // bar range includes level
+    high >= _level and low <= _level
+
+f_confirmBounce(_level, _isUpper) =>
+    // Upper level bounce: touch and close below level
+    // Lower level bounce: touch and close above level
+    bool touched = f_touch(_level) and f_minPen(_level, _isUpper)
+    if not touched
+        false
+    else if not needCloseBack
+        true
+    else
+        _isUpper ? close < _level : close > _level
+
+f_nearestLevelPrice(_arr, _above, _price) =>
+    // returns nearest y-level either above or below _price from array of lines
+    float best = na
+    int sz = array.size(_arr)
+    if sz > 0
+        for j = sz - 1 to 0
+            if j >= 0 and j < array.size(_arr)
+                ln = array.get(_arr, j)
+                y  = line.get_y1(ln)
+                ok = _above ? (y > _price) : (y < _price)
+                if ok
+                    best := na(best) ? y : (_above ? math.min(best, y) : math.max(best, y))
+    best
+
+f_addLevel(_arr, _y, _col, _w) =>
+    ln = line.new(b.i, _y, b.i + 1, _y, color = _col, width = _w)
+    array.push(_arr, ln)
+
+f_trim(_arr) =>
+    if array.size(_arr) > 500
+        line.delete(array.shift(_arr))
+
+//-----------------------------------------------------------------------------}
+// Level generation (adapted from indicator)
+//-----------------------------------------------------------------------------{
+
+refP   = f_gSRC(refPL)
+vbMA   = ta.sma(nzV, 13)
+nzVd2  = nzV > vbMA * (2 + vbHT)
+nzVd1  = nzV > vbMA * (1 + vbHT)
+nzVd0  = nzV > vbMA * (0 + vbHT)
+
+// volatility trigger + minimum excursion trigger
+lT = (b.l != refP and refP / (refP - b.l) <= lqTH) or (b.h != refP and refP / (b.h - refP) <= lqTH)
+eC = refP * (1 + 1. / 333) < b.h or refP * (1 - 1. / 333) > b.l
+
+f_levelWidth() =>
+    nzVd2 ? 3 : nzVd1 ? 2 : 1
+
+// Precompute levels (series) so plotshape can stay in global scope
+l1PL = lqL1 ? (refP * (1 + 1. / lgL1V)) : na
+l1PS = lqL1 ? (refP * (1 - 1. / lgL1V)) : na
+l2PL = lqL2 ? (refP * (1 + 1. / lgL2V)) : na
+l2PS = lqL2 ? (refP * (1 - 1. / lgL2V)) : na
+l3PL = lqL3 ? (refP * (1 + 1. / lgL3V)) : na
+l3PS = lqL3 ? (refP * (1 - 1. / lgL3V)) : na
+
+// Bubbles (must be plotted in global scope)
+plotshape(showBubbles and lqL1 and nzVd2 and eC ? l1PL : na, "Bubbles", shape.circle, location.absolute, lqL1L, editable = false, size = size.normal)
+plotshape(showBubbles and lqL1 and nzVd1 and eC ? l1PL : na, "Bubbles", shape.circle, location.absolute, lqL1L, editable = false, size = size.small)
+plotshape(showBubbles and lqL1 and ((nzVd0 and eC) or lT) ? l1PL : na, "Bubbles", shape.circle, location.absolute, lqL1L, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL1 and ((nzVd0 and eC) or lT) ? l1PS : na, "Bubbles", shape.circle, location.absolute, lqL1S, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL1 and nzVd1 and eC ? l1PS : na, "Bubbles", shape.circle, location.absolute, lqL1S, editable = false, size = size.small)
+plotshape(showBubbles and lqL1 and nzVd2 and eC ? l1PS : na, "Bubbles", shape.circle, location.absolute, lqL1S, editable = false, size = size.normal)
+
+plotshape(showBubbles and lqL2 and nzVd2 and eC ? l2PL : na, "Bubbles", shape.circle, location.absolute, lqL2L, editable = false, size = size.normal)
+plotshape(showBubbles and lqL2 and nzVd1 and eC ? l2PL : na, "Bubbles", shape.circle, location.absolute, lqL2L, editable = false, size = size.small)
+plotshape(showBubbles and lqL2 and ((nzVd0 and eC) or lT) ? l2PL : na, "Bubbles", shape.circle, location.absolute, lqL2L, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL2 and ((nzVd0 and eC) or lT) ? l2PS : na, "Bubbles", shape.circle, location.absolute, lqL2S, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL2 and nzVd1 and eC ? l2PS : na, "Bubbles", shape.circle, location.absolute, lqL2S, editable = false, size = size.small)
+plotshape(showBubbles and lqL2 and nzVd2 and eC ? l2PS : na, "Bubbles", shape.circle, location.absolute, lqL2S, editable = false, size = size.normal)
+
+plotshape(showBubbles and lqL3 and nzVd2 and eC ? l3PL : na, "Bubbles", shape.circle, location.absolute, lqL3L, editable = false, size = size.normal)
+plotshape(showBubbles and lqL3 and nzVd1 and eC ? l3PL : na, "Bubbles", shape.circle, location.absolute, lqL3L, editable = false, size = size.small)
+plotshape(showBubbles and lqL3 and ((nzVd0 and eC) or lT) ? l3PL : na, "Bubbles", shape.circle, location.absolute, lqL3L, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL3 and ((nzVd0 and eC) or lT) ? l3PS : na, "Bubbles", shape.circle, location.absolute, lqL3S, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL3 and nzVd1 and eC ? l3PS : na, "Bubbles", shape.circle, location.absolute, lqL3S, editable = false, size = size.small)
+plotshape(showBubbles and lqL3 and nzVd2 and eC ? l3PS : na, "Bubbles", shape.circle, location.absolute, lqL3S, editable = false, size = size.normal)
+
+// leverage group 1
+if showLevels and lqL1 and (lT or nzVd0) and eC
+    if l1PL > b.h
+        f_addLevel(aUp, l1PL, lqL1L, f_levelWidth())
+    if l1PS < b.l
+        f_addLevel(aDn, l1PS, lqL1S, f_levelWidth())
+
+// leverage group 2
+if showLevels and lqL2 and (lT or nzVd0) and eC
+    if l2PL > b.h
+        f_addLevel(aUp, l2PL, lqL2L, f_levelWidth())
+    if l2PS < b.l
+        f_addLevel(aDn, l2PS, lqL2S, f_levelWidth())
+
+// leverage group 3
+if showLevels and lqL3 and (lT or nzVd0) and eC
+    if l3PL > b.h
+        f_addLevel(aUp, l3PL, lqL3L, f_levelWidth())
+    if l3PS < b.l
+        f_addLevel(aDn, l3PS, lqL3S, f_levelWidth())
+
+f_trim(aUp)
+f_trim(aDn)
+
+// Keep extending lines, and delete them on touch (like original indicator)
+f_updateLevels(_arr) =>
+    int sz = array.size(_arr)
+    if sz > 0
+        for j = sz - 1 to 0
+            if j >= 0 and j < array.size(_arr)
+                ln = array.get(_arr, j)
+                y  = line.get_y1(ln)
+                if f_touch(y)
+                    // don't delete here; strategy logic below may want to use this touch event
+                    na
+                else
+                    line.set_x2(ln, b.i + 1)
+
+f_updateLevels(aUp)
+f_updateLevels(aDn)
+
+//-----------------------------------------------------------------------------}
+// Strategy: bounce from levels
+//-----------------------------------------------------------------------------{
+
+// one trade at a time unless reversals enabled
+canTrade = allowReversals or strategy.position_size == 0
+
+// Optional time exit (prevents a single trade blocking new entries)
+var int entryBar = na
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    entryBar := bar_index
+if strategy.position_size == 0
+    entryBar := na
+barsInTrade = strategy.position_size != 0 and not na(entryBar) ? (bar_index - entryBar) : na
+if strategy.position_size != 0 and maxHoldBars > 0 and not na(barsInTrade) and barsInTrade >= maxHoldBars
+    strategy.close_all(comment = "Time exit")
+
+// Try to trigger on the *latest* touched level (closest in time), scanning from newest to oldest
+f_tradeBounce(_arr, _isUpper, _canEnter) =>
+    bool did = false
+    int sz = array.size(_arr)
+    if sz > 0
+        for j = sz - 1 to 0
+            if not did and j >= 0 and j < array.size(_arr)
+                ln = array.get(_arr, j)
+                y  = line.get_y1(ln)
+                if f_confirmBounce(y, _isUpper)
+                    float off = f_stopOffset(y)
+                    float stopPrice = _isUpper ? (y + off) : (y - off)
+                    float entryPrice = close
+
+                    float tpPrice = na
+                    if tpMode == "Nearest Opposite Level"
+                        // long TP -> nearest upper above entry; short TP -> nearest lower below entry
+                        tpPrice := _isUpper ? f_nearestLevelPrice(aDn, false, entryPrice) : f_nearestLevelPrice(aUp, true, entryPrice)
+                    if na(tpPrice)
+                        // fallback RR
+                        float risk = math.abs(entryPrice - stopPrice)
+                        tpPrice := _isUpper ? (entryPrice - risk * rr) : (entryPrice + risk * rr)
+
+                    if _isUpper and useShort and _canEnter
+                        strategy.entry("S", strategy.short, comment = "Bounce from upper LQ")
+                        strategy.exit("Sx", "S", stop = stopPrice, limit = tpPrice)
+                        did := true
+                    if (not _isUpper) and useLong and _canEnter
+                        strategy.entry("L", strategy.long, comment = "Bounce from lower LQ")
+                        strategy.exit("Lx", "L", stop = stopPrice, limit = tpPrice)
+                        did := true
+
+                    // after triggering, delete the level (one-and-done, like original indicator)
+                    if did
+                        line.delete(ln)
+                        array.remove(_arr, j)
+    did
+
+// Evaluate upper levels (short) first, then lower (long)
+didUpper = f_tradeBounce(aUp, true, canTrade)
+didLower = not didUpper ? f_tradeBounce(aDn, false, canTrade) : false
+
+// After trading logic, clean any remaining touched levels (to match the indicator behavior)
+f_cleanupTouched(_arr) =>
+    int sz = array.size(_arr)
+    if sz > 0
+        for j = sz - 1 to 0
+            if j >= 0 and j < array.size(_arr)
+                ln = array.get(_arr, j)
+                y  = line.get_y1(ln)
+                if f_touch(y)
+                    line.delete(ln)
+                    array.remove(_arr, j)
+
+if levelDeleteMode == "On touch (LuxAlgo-style)"
+    f_cleanupTouched(aUp)
+    f_cleanupTouched(aDn)
+
+//-----------------------------------------------------------------------------}
