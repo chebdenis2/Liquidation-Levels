@@ -40,6 +40,19 @@ showLevels  = input.bool(true, "Show Liquidation Levels")
 useLong  = input.bool(true, "Trade Long bounces (from lower levels)")
 useShort = input.bool(true, "Trade Short bounces (from upper levels)")
 
+posTT = "If disabled, the strategy will only take a new entry when flat.\n" +
+    "If enabled, new signals can reverse the current position (more trades)."
+allowReversals = input.bool(true, "Allow reversals / new entries while in position", tooltip = posTT)
+
+exitTT = "Time-based exit: close position after N bars in trade (0 = disabled).\n" +
+    "Useful to avoid one trade blocking new entries for too long."
+maxHoldBars = input.int(0, "Max bars in trade (0 = off)", minval = 0, tooltip = exitTT)
+
+lvlTT = "Level lifetime:\n" +
+    " - On touch (LuxAlgo-style): delete a level the first time price touches it.\n" +
+    " - Only after trade: keep levels until a bounce trade triggers on them (more trades)."
+levelDeleteMode = input.string("Only after trade", "Delete levels", options = ["On touch (LuxAlgo-style)", "Only after trade"], tooltip = lvlTT)
+
 confirmTT = "Bounce confirmation:\n - Close back through the level (reject)\n - Optional min penetration (tick/%) to avoid noise"
 needCloseBack = input.bool(true, "Require close back through level", tooltip = confirmTT)
 minPenTicks   = input.int(0, "Min penetration (ticks)", minval = 0, tooltip = confirmTT)
@@ -230,11 +243,21 @@ f_updateLevels(aDn)
 // Strategy: bounce from levels
 //-----------------------------------------------------------------------------{
 
-// one trade at a time (pyramiding=0)
-canTrade = strategy.position_size == 0
+// one trade at a time unless reversals enabled
+canTrade = allowReversals or strategy.position_size == 0
+
+// Optional time exit (prevents a single trade blocking new entries)
+var int entryBar = na
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    entryBar := bar_index
+if strategy.position_size == 0
+    entryBar := na
+barsInTrade = strategy.position_size != 0 and not na(entryBar) ? (bar_index - entryBar) : na
+if strategy.position_size != 0 and maxHoldBars > 0 and not na(barsInTrade) and barsInTrade >= maxHoldBars
+    strategy.close_all(comment = "Time exit")
 
 // Try to trigger on the *latest* touched level (closest in time), scanning from newest to oldest
-f_tradeBounce(_arr, _isUpper) =>
+f_tradeBounce(_arr, _isUpper, _canEnter) =>
     bool did = false
     int sz = array.size(_arr)
     if sz > 0
@@ -256,11 +279,11 @@ f_tradeBounce(_arr, _isUpper) =>
                         float risk = math.abs(entryPrice - stopPrice)
                         tpPrice := _isUpper ? (entryPrice - risk * rr) : (entryPrice + risk * rr)
 
-                    if _isUpper and useShort and canTrade
+                    if _isUpper and useShort and _canEnter
                         strategy.entry("S", strategy.short, comment = "Bounce from upper LQ")
                         strategy.exit("Sx", "S", stop = stopPrice, limit = tpPrice)
                         did := true
-                    if (not _isUpper) and useLong and canTrade
+                    if (not _isUpper) and useLong and _canEnter
                         strategy.entry("L", strategy.long, comment = "Bounce from lower LQ")
                         strategy.exit("Lx", "L", stop = stopPrice, limit = tpPrice)
                         did := true
@@ -272,8 +295,8 @@ f_tradeBounce(_arr, _isUpper) =>
     did
 
 // Evaluate upper levels (short) first, then lower (long)
-f_tradeBounce(aUp, true)
-f_tradeBounce(aDn, false)
+didUpper = f_tradeBounce(aUp, true, canTrade)
+didLower = not didUpper ? f_tradeBounce(aDn, false, canTrade) : false
 
 // After trading logic, clean any remaining touched levels (to match the indicator behavior)
 f_cleanupTouched(_arr) =>
@@ -287,7 +310,8 @@ f_cleanupTouched(_arr) =>
                     line.delete(ln)
                     array.remove(_arr, j)
 
-f_cleanupTouched(aUp)
-f_cleanupTouched(aDn)
+if levelDeleteMode == "On touch (LuxAlgo-style)"
+    f_cleanupTouched(aUp)
+    f_cleanupTouched(aDn)
 
 //-----------------------------------------------------------------------------}
