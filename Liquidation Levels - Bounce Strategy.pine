@@ -281,8 +281,8 @@ f_tradeBounce(_arr, _isUpper) =>
     did
 
 // Evaluate upper levels (short) first, then lower (long)
-_ = f_tradeBounce(aUp, true)
-__ = f_tradeBounce(aDn, false)
+f_tradeBounce(aUp, true)
+f_tradeBounce(aDn, false)
 
 // After trading logic, clean any remaining touched levels (to match the indicator behavior)
 f_cleanupTouched(_arr) =>
