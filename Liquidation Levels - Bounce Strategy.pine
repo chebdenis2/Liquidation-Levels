@@ -40,17 +40,13 @@ showLevels  = input.bool(true, "Show Liquidation Levels")
 useLong  = input.bool(true, "Trade Long bounces (from lower levels)")
 useShort = input.bool(true, "Trade Short bounces (from upper levels)")
 
-posTT = "If disabled, the strategy will only take a new entry when flat.\n" +
-    "If enabled, new signals can reverse the current position (more trades)."
+posTT = "If disabled, the strategy will only take a new entry when flat.\nIf enabled, new signals can reverse the current position (more trades)."
 allowReversals = input.bool(true, "Allow reversals / new entries while in position", tooltip = posTT)
 
-exitTT = "Time-based exit: close position after N bars in trade (0 = disabled).\n" +
-    "Useful to avoid one trade blocking new entries for too long."
+exitTT = "Time-based exit: close position after N bars in trade (0 = disabled).\nUseful to avoid one trade blocking new entries for too long."
 maxHoldBars = input.int(0, "Max bars in trade (0 = off)", minval = 0, tooltip = exitTT)
 
-lvlTT = "Level lifetime:\n" +
-    " - On touch (LuxAlgo-style): delete a level the first time price touches it.\n" +
-    " - Only after trade: keep levels until a bounce trade triggers on them (more trades)."
+lvlTT = "Level lifetime:\n - On touch (LuxAlgo-style): delete a level the first time price touches it.\n - Only after trade: keep levels until a bounce trade triggers on them (more trades)."
 levelDeleteMode = input.string("Only after trade", "Delete levels", options = ["On touch (LuxAlgo-style)", "Only after trade"], tooltip = lvlTT)
 
 confirmTT = "Bounce confirmation:\n - Close back through the level (reject)\n - Optional min penetration (tick/%) to avoid noise"
