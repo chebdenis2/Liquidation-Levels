@@ -229,9 +229,6 @@ f_updateLevels(aDn)
 // one trade at a time (pyramiding=0)
 canTrade = strategy.position_size == 0
 
-var float lastTouched = na
-var int   lastTouchedBar = na
-
 // Try to trigger on the *latest* touched level (closest in time), scanning from newest to oldest
 f_tradeBounce(_arr, _isUpper) =>
     bool did = false
@@ -240,36 +237,32 @@ f_tradeBounce(_arr, _isUpper) =>
             ln = array.get(_arr, j)
             y  = line.get_y1(ln)
             if f_confirmBounce(y, _isUpper)
-                // anti-duplicate on same bar/level
-                if (na(lastTouchedBar) or lastTouchedBar != b.i or lastTouched != y)
-                    float off = f_stopOffset(y)
-                    float stopPrice = _isUpper ? (y + off) : (y - off)
-                    float entryPrice = close
+                float off = f_stopOffset(y)
+                float stopPrice = _isUpper ? (y + off) : (y - off)
+                float entryPrice = close
 
-                    float tpPrice = na
-                    if tpMode == "Nearest Opposite Level"
-                        // long TP -> nearest upper above entry; short TP -> nearest lower below entry
-                        tpPrice := _isUpper ? f_nearestLevelPrice(aDn, false, entryPrice) : f_nearestLevelPrice(aUp, true, entryPrice)
-                    if na(tpPrice)
-                        // fallback RR
-                        float risk = math.abs(entryPrice - stopPrice)
-                        tpPrice := _isUpper ? (entryPrice - risk * rr) : (entryPrice + risk * rr)
+                float tpPrice = na
+                if tpMode == "Nearest Opposite Level"
+                    // long TP -> nearest upper above entry; short TP -> nearest lower below entry
+                    tpPrice := _isUpper ? f_nearestLevelPrice(aDn, false, entryPrice) : f_nearestLevelPrice(aUp, true, entryPrice)
+                if na(tpPrice)
+                    // fallback RR
+                    float risk = math.abs(entryPrice - stopPrice)
+                    tpPrice := _isUpper ? (entryPrice - risk * rr) : (entryPrice + risk * rr)
 
-                    if _isUpper and useShort and canTrade
-                        strategy.entry("S", strategy.short, comment = "Bounce from upper LQ")
-                        strategy.exit("Sx", "S", stop = stopPrice, limit = tpPrice)
-                        did := true
-                    if (not _isUpper) and useLong and canTrade
-                        strategy.entry("L", strategy.long, comment = "Bounce from lower LQ")
-                        strategy.exit("Lx", "L", stop = stopPrice, limit = tpPrice)
-                        did := true
+                if _isUpper and useShort and canTrade
+                    strategy.entry("S", strategy.short, comment = "Bounce from upper LQ")
+                    strategy.exit("Sx", "S", stop = stopPrice, limit = tpPrice)
+                    did := true
+                if (not _isUpper) and useLong and canTrade
+                    strategy.entry("L", strategy.long, comment = "Bounce from lower LQ")
+                    strategy.exit("Lx", "L", stop = stopPrice, limit = tpPrice)
+                    did := true
 
-                    // after triggering, delete the level (one-and-done, like original indicator)
-                    if did
-                        lastTouched := y
-                        lastTouchedBar := b.i
-                        line.delete(ln)
-                        array.remove(_arr, j)
+                // after triggering, delete the level (one-and-done, like original indicator)
+                if did
+                    line.delete(ln)
+                    array.remove(_arr, j)
     did
 
 // Evaluate upper levels (short) first, then lower (long)
