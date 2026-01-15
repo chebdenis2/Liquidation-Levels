@@ -161,65 +161,56 @@ eC = refP * (1 + 1. / 333) < b.h or refP * (1 - 1. / 333) > b.l
 f_levelWidth() =>
     nzVd2 ? 3 : nzVd1 ? 2 : 1
 
+// Precompute levels (series) so plotshape can stay in global scope
+l1PL = lqL1 ? (refP * (1 + 1. / lgL1V)) : na
+l1PS = lqL1 ? (refP * (1 - 1. / lgL1V)) : na
+l2PL = lqL2 ? (refP * (1 + 1. / lgL2V)) : na
+l2PS = lqL2 ? (refP * (1 - 1. / lgL2V)) : na
+l3PL = lqL3 ? (refP * (1 + 1. / lgL3V)) : na
+l3PS = lqL3 ? (refP * (1 - 1. / lgL3V)) : na
+
+// Bubbles (must be plotted in global scope)
+plotshape(showBubbles and lqL1 and nzVd2 and eC ? l1PL : na, "Bubbles", shape.circle, location.absolute, lqL1L, editable = false, size = size.normal)
+plotshape(showBubbles and lqL1 and nzVd1 and eC ? l1PL : na, "Bubbles", shape.circle, location.absolute, lqL1L, editable = false, size = size.small)
+plotshape(showBubbles and lqL1 and ((nzVd0 and eC) or lT) ? l1PL : na, "Bubbles", shape.circle, location.absolute, lqL1L, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL1 and ((nzVd0 and eC) or lT) ? l1PS : na, "Bubbles", shape.circle, location.absolute, lqL1S, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL1 and nzVd1 and eC ? l1PS : na, "Bubbles", shape.circle, location.absolute, lqL1S, editable = false, size = size.small)
+plotshape(showBubbles and lqL1 and nzVd2 and eC ? l1PS : na, "Bubbles", shape.circle, location.absolute, lqL1S, editable = false, size = size.normal)
+
+plotshape(showBubbles and lqL2 and nzVd2 and eC ? l2PL : na, "Bubbles", shape.circle, location.absolute, lqL2L, editable = false, size = size.normal)
+plotshape(showBubbles and lqL2 and nzVd1 and eC ? l2PL : na, "Bubbles", shape.circle, location.absolute, lqL2L, editable = false, size = size.small)
+plotshape(showBubbles and lqL2 and ((nzVd0 and eC) or lT) ? l2PL : na, "Bubbles", shape.circle, location.absolute, lqL2L, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL2 and ((nzVd0 and eC) or lT) ? l2PS : na, "Bubbles", shape.circle, location.absolute, lqL2S, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL2 and nzVd1 and eC ? l2PS : na, "Bubbles", shape.circle, location.absolute, lqL2S, editable = false, size = size.small)
+plotshape(showBubbles and lqL2 and nzVd2 and eC ? l2PS : na, "Bubbles", shape.circle, location.absolute, lqL2S, editable = false, size = size.normal)
+
+plotshape(showBubbles and lqL3 and nzVd2 and eC ? l3PL : na, "Bubbles", shape.circle, location.absolute, lqL3L, editable = false, size = size.normal)
+plotshape(showBubbles and lqL3 and nzVd1 and eC ? l3PL : na, "Bubbles", shape.circle, location.absolute, lqL3L, editable = false, size = size.small)
+plotshape(showBubbles and lqL3 and ((nzVd0 and eC) or lT) ? l3PL : na, "Bubbles", shape.circle, location.absolute, lqL3L, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL3 and ((nzVd0 and eC) or lT) ? l3PS : na, "Bubbles", shape.circle, location.absolute, lqL3S, editable = false, size = size.tiny)
+plotshape(showBubbles and lqL3 and nzVd1 and eC ? l3PS : na, "Bubbles", shape.circle, location.absolute, lqL3S, editable = false, size = size.small)
+plotshape(showBubbles and lqL3 and nzVd2 and eC ? l3PS : na, "Bubbles", shape.circle, location.absolute, lqL3S, editable = false, size = size.normal)
+
 // leverage group 1
-if lqL1
-    l1PL = refP * (1 + 1. / lgL1V)
-    l1PS = refP * (1 - 1. / lgL1V)
-
-    if showBubbles and (lT or nzVd0) and eC
-        plotshape(nzVd2 and eC ? l1PL : na, "Bubbles", shape.circle, location.absolute, lqL1L, editable = false, size = size.normal)
-        plotshape(nzVd1 and eC ? l1PL : na, "Bubbles", shape.circle, location.absolute, lqL1L, editable = false, size = size.small)
-        plotshape((nzVd0 and eC) or lT ? l1PL : na, "Bubbles", shape.circle, location.absolute, lqL1L, editable = false, size = size.tiny)
-
-        plotshape((nzVd0 and eC) or lT ? l1PS : na, "Bubbles", shape.circle, location.absolute, lqL1S, editable = false, size = size.tiny)
-        plotshape(nzVd1 and eC ? l1PS : na, "Bubbles", shape.circle, location.absolute, lqL1S, editable = false, size = size.small)
-        plotshape(nzVd2 and eC ? l1PS : na, "Bubbles", shape.circle, location.absolute, lqL1S, editable = false, size = size.normal)
-
-    if showLevels and (lT or nzVd0) and eC
-        if l1PL > b.h
-            f_addLevel(aUp, l1PL, lqL1L, f_levelWidth())
-        if l1PS < b.l
-            f_addLevel(aDn, l1PS, lqL1S, f_levelWidth())
+if showLevels and lqL1 and (lT or nzVd0) and eC
+    if l1PL > b.h
+        f_addLevel(aUp, l1PL, lqL1L, f_levelWidth())
+    if l1PS < b.l
+        f_addLevel(aDn, l1PS, lqL1S, f_levelWidth())
 
 // leverage group 2
-if lqL2
-    l2PL = refP * (1 + 1. / lgL2V)
-    l2PS = refP * (1 - 1. / lgL2V)
-
-    if showBubbles and (lT or nzVd0) and eC
-        plotshape(nzVd2 and eC ? l2PL : na, "Bubbles", shape.circle, location.absolute, lqL2L, editable = false, size = size.normal)
-        plotshape(nzVd1 and eC ? l2PL : na, "Bubbles", shape.circle, location.absolute, lqL2L, editable = false, size = size.small)
-        plotshape((nzVd0 and eC) or lT ? l2PL : na, "Bubbles", shape.circle, location.absolute, lqL2L, editable = false, size = size.tiny)
-
-        plotshape((nzVd0 and eC) or lT ? l2PS : na, "Bubbles", shape.circle, location.absolute, lqL2S, editable = false, size = size.tiny)
-        plotshape(nzVd1 and eC ? l2PS : na, "Bubbles", shape.circle, location.absolute, lqL2S, editable = false, size = size.small)
-        plotshape(nzVd2 and eC ? l2PS : na, "Bubbles", shape.circle, location.absolute, lqL2S, editable = false, size = size.normal)
-
-    if showLevels and (lT or nzVd0) and eC
-        if l2PL > b.h
-            f_addLevel(aUp, l2PL, lqL2L, f_levelWidth())
-        if l2PS < b.l
-            f_addLevel(aDn, l2PS, lqL2S, f_levelWidth())
+if showLevels and lqL2 and (lT or nzVd0) and eC
+    if l2PL > b.h
+        f_addLevel(aUp, l2PL, lqL2L, f_levelWidth())
+    if l2PS < b.l
+        f_addLevel(aDn, l2PS, lqL2S, f_levelWidth())
 
 // leverage group 3
-if lqL3
-    l3PL = refP * (1 + 1. / lgL3V)
-    l3PS = refP * (1 - 1. / lgL3V)
-
-    if showBubbles and (lT or nzVd0) and eC
-        plotshape(nzVd2 and eC ? l3PL : na, "Bubbles", shape.circle, location.absolute, lqL3L, editable = false, size = size.normal)
-        plotshape(nzVd1 and eC ? l3PL : na, "Bubbles", shape.circle, location.absolute, lqL3L, editable = false, size = size.small)
-        plotshape((nzVd0 and eC) or lT ? l3PL : na, "Bubbles", shape.circle, location.absolute, lqL3L, editable = false, size = size.tiny)
-
-        plotshape((nzVd0 and eC) or lT ? l3PS : na, "Bubbles", shape.circle, location.absolute, lqL3S, editable = false, size = size.tiny)
-        plotshape(nzVd1 and eC ? l3PS : na, "Bubbles", shape.circle, location.absolute, lqL3S, editable = false, size = size.small)
-        plotshape(nzVd2 and eC ? l3PS : na, "Bubbles", shape.circle, location.absolute, lqL3S, editable = false, size = size.normal)
-
-    if showLevels and (lT or nzVd0) and eC
-        if l3PL > b.h
-            f_addLevel(aUp, l3PL, lqL3L, f_levelWidth())
-        if l3PS < b.l
-            f_addLevel(aDn, l3PS, lqL3S, f_levelWidth())
+if showLevels and lqL3 and (lT or nzVd0) and eC
+    if l3PL > b.h
+        f_addLevel(aUp, l3PL, lqL3L, f_levelWidth())
+    if l3PS < b.l
+        f_addLevel(aDn, l3PS, lqL3S, f_levelWidth())
 
 f_trim(aUp)
 f_trim(aDn)
